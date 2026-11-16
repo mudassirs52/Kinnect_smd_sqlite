@@ -40,6 +40,7 @@ dependencies {
     implementation(libs.material)
     implementation("com.android.volley:volley:1.2.1")
     implementation("androidx.security:security-crypto:1.1.0")
+    implementation("io.agora.rtc:full-sdk:4.3.1")
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.junit)
