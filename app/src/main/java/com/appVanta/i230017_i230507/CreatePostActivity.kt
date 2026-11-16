@@ -17,6 +17,10 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.FileProvider
+import com.android.volley.Request
+import com.android.volley.Response
+import com.android.volley.toolbox.Volley
+import org.json.JSONObject
 import java.io.File
 
 class CreatePostActivity : AppCompatActivity() {
@@ -106,7 +110,53 @@ class CreatePostActivity : AppCompatActivity() {
             return
         }
         btn.isEnabled = false
-        Toast.makeText(this, "Posted", Toast.LENGTH_SHORT).show()
-        finish()
+
+        val token = RecentLoginStore.getToken(this)
+        if (token.isNullOrEmpty()) {
+            Toast.makeText(this, "Unauthorized. Please login.", Toast.LENGTH_SHORT).show()
+            btn.isEnabled = true
+            return
+        }
+
+        val url = "${ApiClient.BASE_URL}posts_create.php"
+        val byteData = mutableMapOf<String, VolleyMultipartRequest.DataPart>()
+        for ((index, uri) in images.withIndex()) {
+            val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
+            if (bytes != null) {
+                byteData["files[$index]"] = VolleyMultipartRequest.DataPart("img_$index.jpg", bytes, "image/jpeg")
+            }
+        }
+
+        val params = mapOf("text" to text)
+
+        val multipartRequest = VolleyMultipartRequest(
+            Request.Method.POST,
+            url,
+            mapOf("Authorization" to "Bearer $token"),
+            params,
+            byteData,
+            Response.Listener { response ->
+                try {
+                    val json = JSONObject(String(response.data))
+                    if (json.getString("status") == "success") {
+                        Toast.makeText(this, "Posted successfully!", Toast.LENGTH_SHORT).show()
+                        finish()
+                    } else {
+                        Toast.makeText(this, json.getString("message"), Toast.LENGTH_SHORT).show()
+                        btn.isEnabled = true
+                    }
+                } catch (e: Exception) {
+                    Toast.makeText(this, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                    btn.isEnabled = true
+                }
+            },
+            Response.ErrorListener { error ->
+                Toast.makeText(this, "Network error: ${error.message}", Toast.LENGTH_SHORT).show()
+                btn.isEnabled = true
+            }
+        )
+
+        Volley.newRequestQueue(this).add(multipartRequest)
+        Toast.makeText(this, "Posting...", Toast.LENGTH_SHORT).show()
     }
 }
