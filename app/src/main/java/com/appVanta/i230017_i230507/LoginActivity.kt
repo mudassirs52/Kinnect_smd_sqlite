@@ -8,6 +8,10 @@ import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import com.android.volley.Response
+import com.android.volley.toolbox.StringRequest
+import com.android.volley.toolbox.Volley
+import org.json.JSONObject
 
 class LoginActivity : AppCompatActivity() {
 
@@ -46,10 +50,44 @@ class LoginActivity : AppCompatActivity() {
                 Toast.makeText(this, "Enter email and password", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
-            RecentLoginStore.save(this, email.substringBefore("@").replaceFirstChar { it.uppercase() }, email)
-            val intent = Intent(this, HomeActivity::class.java)
-            intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-            startActivity(intent)
+
+            val url = "${ApiClient.BASE_URL}login.php"
+            val queue = Volley.newRequestQueue(this)
+            val request = object : StringRequest(Method.POST, url,
+                Response.Listener { response ->
+                    try {
+                        val json = JSONObject(response)
+                        if (json.getString("status") == "success") {
+                            val token = json.getString("token")
+                            val userObj = json.getJSONObject("user")
+                            val name = "${userObj.getString("first_name")} ${userObj.getString("last_name")}"
+
+                            RecentLoginStore.save(this, name, email, token)
+
+                            // Returning users navigate directly to Home
+                            val intent = Intent(this, HomeActivity::class.java).apply {
+                                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                            }
+                            startActivity(intent)
+                        } else {
+                            Toast.makeText(this, json.getString("message"), Toast.LENGTH_SHORT).show()
+                        }
+                    } catch (e: Exception) {
+                        Toast.makeText(this, "Parsing error: ${e.message}", Toast.LENGTH_SHORT).show()
+                    }
+                },
+                Response.ErrorListener { error ->
+                    Toast.makeText(this, "Network error: ${error.message ?: "Could not connect to server"}", Toast.LENGTH_SHORT).show()
+                }
+            ) {
+                override fun getParams(): Map<String, String> {
+                    return mapOf(
+                        "email" to email,
+                        "password" to password
+                    )
+                }
+            }
+            queue.add(request)
         }
     }
 

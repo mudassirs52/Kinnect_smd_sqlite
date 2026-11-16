@@ -9,6 +9,11 @@ import android.util.Patterns
 import android.view.View
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
+import com.android.volley.Request
+import com.android.volley.Response
+import com.android.volley.toolbox.StringRequest
+import com.android.volley.toolbox.Volley
+import org.json.JSONObject
 import java.util.Calendar
 
 class SignupActivity : AppCompatActivity() {
@@ -126,12 +131,46 @@ class SignupActivity : AppCompatActivity() {
             !findViewById<CheckBox>(R.id.cbTerms).isChecked -> return toast("Please accept the Terms")
         }
 
-        val fullName = "$first $last"
-        RecentLoginStore.save(this, fullName, email)
-        val intent = Intent(this, EditProfileActivity::class.java)
-        intent.putExtra("firstTime", true)
-        intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-        startActivity(intent)
+        val url = "${ApiClient.BASE_URL}signup.php"
+        val queue = Volley.newRequestQueue(this)
+        val request = object : StringRequest(Method.POST, url,
+            Response.Listener { response ->
+                try {
+                    val json = JSONObject(response)
+                    if (json.getString("status") == "success") {
+                        val token = json.getString("token")
+                        val fullName = "$first $last"
+                        RecentLoginStore.save(this, fullName, email, token)
+
+                        // First-time users navigate to Edit Profile (Screen 16) before Home
+                        val intent = Intent(this, EditProfileActivity::class.java).apply {
+                            putExtra("firstTime", true)
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                        }
+                        startActivity(intent)
+                    } else {
+                        toast(json.getString("message"))
+                    }
+                } catch (e: Exception) {
+                    toast("Parsing error: ${e.message}")
+                }
+            },
+            Response.ErrorListener { error ->
+                toast("Network error: ${error.message ?: "Could not connect to server"}")
+            }
+        ) {
+            override fun getParams(): Map<String, String> {
+                return mapOf(
+                    "first_name" to first,
+                    "last_name" to last,
+                    "email" to email,
+                    "password" to password,
+                    "gender" to gender,
+                    "birthday" to birthday
+                )
+            }
+        }
+        queue.add(request)
     }
 
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
