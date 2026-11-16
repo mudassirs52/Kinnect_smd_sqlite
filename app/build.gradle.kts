@@ -41,6 +41,8 @@ dependencies {
     implementation("com.android.volley:volley:1.2.1")
     implementation("androidx.security:security-crypto:1.1.0")
     implementation("io.agora.rtc:full-sdk:4.3.1")
+    implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
+    implementation("com.google.firebase:firebase-messaging")
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.junit)
