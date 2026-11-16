@@ -1,7 +1,7 @@
 package com.appVanta.i230017_i230507
 
-import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -16,18 +16,30 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import com.android.volley.Request
+import com.android.volley.Response
+import com.android.volley.toolbox.StringRequest
+import com.android.volley.toolbox.Volley
+import org.json.JSONObject
 
 class SearchActivity : AppCompatActivity() {
 
     private var me = "local_user_123"
     private val handler = Handler(Looper.getMainLooper())
     private var pending: Runnable? = null
-    private var searchId = 0
     private var loading = false
     private var query = ""
-    private var results = listOf<UserLite>()
-    private val removers = mutableListOf<() -> Unit>()
+    private var results = listOf<SearchUser>()
+
+    data class SearchUser(
+        val id: String,
+        val name: String,
+        val username: String,
+        val profilePhoto: String,
+        var friendState: String // NONE, SENT, RECEIVED, FRIENDS
+    )
 
     private lateinit var input: EditText
     private lateinit var clear: ImageView
@@ -62,17 +74,6 @@ class SearchActivity : AppCompatActivity() {
         showRecent()
     }
 
-    override fun onStart() {
-        super.onStart()
-        // Local fallback: no-op
-    }
-
-    override fun onStop() {
-        super.onStop()
-        removers.forEach { it() }
-        removers.clear()
-    }
-
     override fun onDestroy() {
         super.onDestroy()
         pending?.let { handler.removeCallbacks(it) }
@@ -82,7 +83,6 @@ class SearchActivity : AppCompatActivity() {
         query = q
         clear.visibility = if (q.isEmpty()) View.GONE else View.VISIBLE
         pending?.let { handler.removeCallbacks(it) }
-        searchId++
 
         if (q.isEmpty()) {
             loading = false
@@ -103,28 +103,151 @@ class SearchActivity : AppCompatActivity() {
     }
 
     private fun runSearch(q: String) {
-        loading = false
-        results = emptyList()
-        renderResults()
+        val token = RecentLoginStore.getToken(this)
+        if (token.isNullOrEmpty()) {
+            loading = false
+            renderResults("Offline / Not authenticated")
+            return
+        }
+
+        val url = "${ApiClient.BASE_URL}search.php?q=${Uri.encode(q)}&filter=everyone"
+        val request = object : StringRequest(Method.GET, url,
+            Response.Listener { response ->
+                loading = false
+                try {
+                    val json = JSONObject(response)
+                    if (json.getString("status") == "success") {
+                        val arr = json.getJSONArray("users")
+                        val list = mutableListOf<SearchUser>()
+                        for (i in 0 until arr.length()) {
+                            val o = arr.getJSONObject(i)
+                            list.add(
+                                SearchUser(
+                                    id = o.getString("id"),
+                                    name = o.getString("name"),
+                                    username = o.optString("username", ""),
+                                    profilePhoto = o.optString("profile_photo", ""),
+                                    friendState = o.optString("friend_state", "NONE")
+                                )
+                            )
+                        }
+                        results = list
+                        renderResults()
+                    } else {
+                        renderResults(json.getString("message"))
+                    }
+                } catch (e: Exception) {
+                    renderResults("Parsing error: ${e.message}")
+                }
+            },
+            Response.ErrorListener { _ ->
+                loading = false
+                renderResults("Network error (Offline Mode)")
+            }
+        ) {
+            override fun getHeaders(): Map<String, String> = mapOf("Authorization" to "Bearer $token")
+        }
+        Volley.newRequestQueue(this).add(request)
     }
 
     private fun renderResults(errorText: String? = null) {
-        if (query.isEmpty()) return
-
-        val box = findViewById<LinearLayout>(R.id.resultsContainer)
-        val status = findViewById<TextView>(R.id.tvSearchStatus)
+        val box = findViewById<LinearLayout>(R.id.resultsContainer) ?: return
+        val status = findViewById<TextView>(R.id.tvSearchStatus) ?: return
         box.removeAllViews()
+
+        if (loading) {
+            status.visibility = View.VISIBLE
+            status.text = "Searching..."
+            return
+        }
 
         if (results.isEmpty()) {
             status.visibility = View.VISIBLE
-            status.text = when {
-                errorText != null -> errorText
-                loading -> "Searching..."
-                else -> "No people found for \"$query\""
-            }
+            status.text = errorText ?: "No people found for \"$query\""
             return
         }
+
         status.visibility = View.GONE
+
+        for (user in results) {
+            val row = layoutInflater.inflate(R.layout.item_search_person, box, false)
+            val avatar = row.findViewById<TextView>(R.id.tvAvatar)
+            Photos.bindAvatar(avatar, user.name, user.id, user.profilePhoto)
+            row.findViewById<TextView>(R.id.tvName).text = user.name
+            row.findViewById<TextView>(R.id.tvSub).text = if (user.username.isNotEmpty()) "@${user.username}" else user.id
+
+            val btnAdd = row.findViewById<ImageView>(R.id.btnAdd)
+            val tvStatus = row.findViewById<TextView>(R.id.tvStatus)
+
+            updateButtonState(btnAdd, tvStatus, user)
+
+            btnAdd.setOnClickListener {
+                onActionButtonClick(user, btnAdd, tvStatus)
+            }
+
+            row.setOnClickListener {
+                startActivity(Intent(this, OtherProfileActivity::class.java).putExtra("uid", user.id))
+            }
+            box.addView(row)
+        }
+    }
+
+    private fun updateButtonState(btnAdd: ImageView, tvStatus: TextView, user: SearchUser) {
+        when (user.friendState) {
+            "NONE" -> {
+                btnAdd.visibility = View.VISIBLE
+                tvStatus.visibility = View.GONE
+                btnAdd.setImageResource(R.drawable.ic_person_add)
+            }
+            "SENT", "RECEIVED" -> {
+                btnAdd.visibility = View.GONE
+                tvStatus.visibility = View.VISIBLE
+                tvStatus.text = "Requested"
+            }
+            "FRIENDS" -> {
+                btnAdd.visibility = View.GONE
+                tvStatus.visibility = View.VISIBLE
+                tvStatus.text = "Friends"
+            }
+        }
+    }
+
+    private fun onActionButtonClick(user: SearchUser, btnAdd: ImageView, tvStatus: TextView) {
+        when (user.friendState) {
+            "NONE" -> {
+                FriendManager.sendRequest(this, user.id) { ok ->
+                    if (ok) {
+                        user.friendState = "SENT"
+                        updateButtonState(btnAdd, tvStatus, user)
+                        toast("Friend request sent")
+                    } else toast("Failed to send request")
+                }
+            }
+            "SENT", "RECEIVED" -> {
+                FriendManager.cancelRequest(this, user.id) { ok ->
+                    if (ok) {
+                        user.friendState = "NONE"
+                        updateButtonState(btnAdd, tvStatus, user)
+                        toast("Request canceled")
+                    } else toast("Failed to cancel request")
+                }
+            }
+            "FRIENDS" -> {
+                AlertDialog.Builder(this)
+                    .setTitle("Unfriend ${user.name}?")
+                    .setPositiveButton("Unfriend") { _, _ ->
+                        FriendManager.unfriend(this, user.id) { ok ->
+                            if (ok) {
+                                user.friendState = "NONE"
+                                updateButtonState(btnAdd, tvStatus, user)
+                                toast("Unfriended")
+                            } else toast("Failed to unfriend")
+                        }
+                    }
+                    .setNegativeButton("Cancel", null)
+                    .show()
+            }
+        }
     }
 
     private fun prefs() = getSharedPreferences("recent_searches", MODE_PRIVATE)
@@ -162,4 +285,6 @@ class SearchActivity : AppCompatActivity() {
             box.addView(row)
         }
     }
+
+    private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
 }
