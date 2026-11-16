@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/kn_teal"
+    android:fitsSystemWindows="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_centerVertical="true"
+        android:gravity="center_horizontal"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/tvIncomingAvatar"
+            android:layout_width="120dp"
+            android:layout_height="120dp"
+            android:background="@drawable/kn_circle"
+            android:backgroundTint="@color/kn_purple"
+            android:gravity="center"
+            android:textColor="@color/white"
+            android:textSize="40sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tvIncomingName"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:textColor="@color/white"
+            android:textSize="28sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tvIncomingLabel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:textColor="@color/white"
+            android:textSize="15sp" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_alignParentBottom="true"
+        android:gravity="center"
+        android:orientation="horizontal"
+        android:paddingBottom="56dp">
+
+        <TextView
+            android:id="@+id/btnDecline"
+            android:layout_width="72dp"
+            android:layout_height="72dp"
+            android:background="@drawable/kn_circle"
+            android:backgroundTint="#C62828"
+            android:gravity="center"
+            android:text="✕"
+            android:textColor="@color/white"
+            android:textSize="28sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/btnAccept"
+            android:layout_width="72dp"
+            android:layout_height="72dp"
+            android:layout_marginStart="64dp"
+            android:background="@drawable/kn_circle"
+            android:backgroundTint="@color/kn_green"
+            android:gravity="center"
+            android:text="📞"
+            android:textSize="28sp" />
+    </LinearLayout>
+</RelativeLayout>

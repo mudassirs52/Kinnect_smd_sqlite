@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/kn_teal"
+    android:fitsSystemWindows="true">
+
+    <!-- Remote video fills the screen -->
+    <FrameLayout
+        android:id="@+id/remoteContainer"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <!-- Name and timer -->
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="20dp"
+        android:layout_marginTop="20dp"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/tvVideoName"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="@color/white"
+            android:textSize="22sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tvVideoTimer"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:textColor="@color/white"
+            android:textSize="14sp" />
+    </LinearLayout>
+
+    <!-- My own camera preview -->
+    <FrameLayout
+        android:id="@+id/localContainer"
+        android:layout_width="110dp"
+        android:layout_height="160dp"
+        android:layout_gravity="top|end"
+        android:layout_marginTop="20dp"
+        android:layout_marginEnd="16dp"
+        android:background="#33000000" />
+
+    <!-- Controls -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:gravity="center"
+        android:orientation="horizontal"
+        android:paddingBottom="36dp">
+
+        <TextView
+            android:id="@+id/btnVideoMute"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:background="@drawable/kn_circle"
+            android:backgroundTint="#66000000"
+            android:gravity="center"
+            android:text="🎤"
+            android:textSize="22sp" />
+
+        <TextView
+            android:id="@+id/btnVideoCamera"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:layout_marginStart="16dp"
+            android:background="@drawable/kn_circle"
+            android:backgroundTint="#66000000"
+            android:gravity="center"
+            android:text="🎥"
+            android:textSize="22sp" />
+
+        <TextView
+            android:id="@+id/btnVideoFlip"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:layout_marginStart="16dp"
+            android:background="@drawable/kn_circle"
+            android:backgroundTint="#66000000"
+            android:gravity="center"
+            android:text="🔄"
+            android:textSize="22sp" />
+
+        <TextView
+            android:id="@+id/btnVideoEnd"
+            android:layout_width="64dp"
+            android:layout_height="64dp"
+            android:layout_marginStart="16dp"
+            android:background="@drawable/kn_circle"
+            android:backgroundTint="#C62828"
+            android:gravity="center"
+            android:text="✕"
+            android:textColor="@color/white"
+            android:textSize="26sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+</FrameLayout>
