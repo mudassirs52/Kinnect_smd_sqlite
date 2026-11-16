@@ -27,27 +27,42 @@ data class PostModel(
     val commentCount: Int
 )
 
+data class LocalMsg(
+    val clientMsgId: String,
+    val senderId: String,
+    val receiverId: String,
+    val text: String,
+    val mediaUrl: String,
+    val mediaType: String,
+    val edited: Boolean,
+    val deleted: Boolean,
+    val createdAt: Long
+)
+
 class KinnectDbHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME, null, DATABASE_VERSION) {
 
     companion object {
         private const val DATABASE_NAME = "kinnect_cache.db"
-        private const val DATABASE_VERSION = 2
+        private const val DATABASE_VERSION = 3
 
         const val TABLE_STORIES = "stories"
         const val TABLE_POSTS = "posts"
         const val TABLE_POST_IMAGES = "post_images"
+        const val TABLE_MESSAGES = "messages"
     }
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("CREATE TABLE $TABLE_STORIES (id INTEGER PRIMARY KEY, user_id TEXT, media_url TEXT, media_type TEXT, label TEXT, audience TEXT, expires_at INTEGER, created_at INTEGER, author_name TEXT)")
         db.execSQL("CREATE TABLE $TABLE_POSTS (id INTEGER PRIMARY KEY, user_id TEXT, author_name TEXT, text TEXT, created_at INTEGER, comment_count INTEGER)")
         db.execSQL("CREATE TABLE $TABLE_POST_IMAGES (id INTEGER PRIMARY KEY AUTOINCREMENT, post_id INTEGER, image_url TEXT, image_index INTEGER)")
+        db.execSQL("CREATE TABLE $TABLE_MESSAGES (client_msg_id TEXT PRIMARY KEY, sender_id TEXT, receiver_id TEXT, text TEXT, media_url TEXT, media_type TEXT, edited INTEGER, deleted INTEGER, created_at INTEGER)")
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         db.execSQL("DROP TABLE IF EXISTS $TABLE_STORIES")
         db.execSQL("DROP TABLE IF EXISTS $TABLE_POSTS")
         db.execSQL("DROP TABLE IF EXISTS $TABLE_POST_IMAGES")
+        db.execSQL("DROP TABLE IF EXISTS $TABLE_MESSAGES")
         onCreate(db)
     }
 
@@ -104,31 +119,23 @@ class KinnectDbHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAM
         return list
     }
 
-    fun savePosts(posts: List<PostModel>) {
+    fun saveMessages(messages: List<LocalMsg>) {
         val db = writableDatabase
         db.beginTransaction()
         try {
-            db.delete(TABLE_POSTS, null, null)
-            db.delete(TABLE_POST_IMAGES, null, null)
-            for (post in posts) {
-                val pValues = ContentValues().apply {
-                    put("id", post.id)
-                    put("user_id", post.userId)
-                    put("author_name", post.authorName)
-                    put("text", post.text)
-                    put("created_at", post.createdAt)
-                    put("comment_count", post.commentCount)
+            for (m in messages) {
+                val values = ContentValues().apply {
+                    put("client_msg_id", m.clientMsgId)
+                    put("sender_id", m.senderId)
+                    put("receiver_id", m.receiverId)
+                    put("text", m.text)
+                    put("media_url", m.mediaUrl)
+                    put("media_type", m.mediaType)
+                    put("edited", if (m.edited) 1 else 0)
+                    put("deleted", if (m.deleted) 1 else 0)
+                    put("created_at", m.createdAt)
                 }
-                db.insert(TABLE_POSTS, null, pValues)
-
-                for ((index, imgUrl) in post.images.withIndex()) {
-                    val imgValues = ContentValues().apply {
-                        put("post_id", post.id)
-                        put("image_url", imgUrl)
-                        put("image_index", index)
-                    }
-                    db.insert(TABLE_POST_IMAGES, null, imgValues)
-                }
+                db.insertWithOnConflict(TABLE_MESSAGES, null, values, SQLiteDatabase.CONFLICT_REPLACE)
             }
             db.setTransactionSuccessful()
         } finally {
@@ -137,34 +144,32 @@ class KinnectDbHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAM
         }
     }
 
-    fun getCachedPosts(): List<PostModel> {
-        val posts = mutableListOf<PostModel>()
+    fun getCachedMessages(me: String, partnerId: String): List<LocalMsg> {
+        val list = mutableListOf<LocalMsg>()
         val db = readableDatabase
-        val cursor = db.rawQuery("SELECT * FROM $TABLE_POSTS ORDER BY created_at DESC", null)
+        val cursor = db.rawQuery(
+            "SELECT * FROM $TABLE_MESSAGES WHERE (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?) ORDER BY created_at ASC",
+            arrayOf(me, partnerId, partnerId, me)
+        )
         if (cursor.moveToFirst()) {
             do {
-                val postId = cursor.getInt(cursor.getColumnIndexOrThrow("id"))
-                val userId = cursor.getString(cursor.getColumnIndexOrThrow("user_id"))
-                val authorName = cursor.getString(cursor.getColumnIndexOrThrow("author_name"))
-                val text = cursor.getString(cursor.getColumnIndexOrThrow("text"))
-                val createdAt = cursor.getLong(cursor.getColumnIndexOrThrow("created_at"))
-                val commentCount = cursor.getInt(cursor.getColumnIndexOrThrow("comment_count"))
-
-                // Fetch images for this post
-                val images = mutableListOf<String>()
-                val imgCursor = db.rawQuery("SELECT image_url FROM $TABLE_POST_IMAGES WHERE post_id = ? ORDER BY image_index ASC", arrayOf(postId.toString()))
-                if (imgCursor.moveToFirst()) {
-                    do {
-                        images.add(imgCursor.getString(imgCursor.getColumnIndexOrThrow("image_url")))
-                    } while (imgCursor.moveToNext())
-                }
-                imgCursor.close()
-
-                posts.add(PostModel(postId, userId, authorName, text, createdAt, images, commentCount))
+                list.add(
+                    LocalMsg(
+                        clientMsgId = cursor.getString(cursor.getColumnIndexOrThrow("client_msg_id")),
+                        senderId = cursor.getString(cursor.getColumnIndexOrThrow("sender_id")),
+                        receiverId = cursor.getString(cursor.getColumnIndexOrThrow("receiver_id")),
+                        text = cursor.getString(cursor.getColumnIndexOrThrow("text")) ?: "",
+                        mediaUrl = cursor.getString(cursor.getColumnIndexOrThrow("media_url")) ?: "",
+                        mediaType = cursor.getString(cursor.getColumnIndexOrThrow("media_type")) ?: "",
+                        edited = cursor.getInt(cursor.getColumnIndexOrThrow("edited")) == 1,
+                        deleted = cursor.getInt(cursor.getColumnIndexOrThrow("deleted")) == 1,
+                        createdAt = cursor.getLong(cursor.getColumnIndexOrThrow("created_at"))
+                    )
+                )
             } while (cursor.moveToNext())
         }
         cursor.close()
         db.close()
-        return posts
+        return list
     }
 }

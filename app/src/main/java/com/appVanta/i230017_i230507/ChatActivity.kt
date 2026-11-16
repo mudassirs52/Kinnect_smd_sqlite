@@ -1,8 +1,7 @@
 package com.appVanta.i230017_i230507
 
-import android.content.Context
-import android.content.Intent
 import android.database.ContentObserver
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Typeface
 import android.net.Uri
@@ -30,6 +29,10 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import com.android.volley.Request
+import com.android.volley.Response
+import com.android.volley.toolbox.Volley
+import org.json.JSONObject
 
 class ChatActivity : AppCompatActivity() {
 
@@ -37,7 +40,7 @@ class ChatActivity : AppCompatActivity() {
         var activeChatUid: String? = null
     }
 
-    private var me = ""
+    private var me = "local_user_123"
     private var other = ""
     private var chatId = ""
     private var otherUser: UserLite? = null
@@ -58,8 +61,16 @@ class ChatActivity : AppCompatActivity() {
     private lateinit var replyBar: View
     private lateinit var tvReplyLabel: TextView
 
-    private val pickImage = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        if (uri != null) sendImage(uri)
+    private val handler = Handler(Looper.getMainLooper())
+    private val pollRunnable = object : Runnable {
+        override fun run() {
+            loadMessages()
+            handler.postDelayed(this, 3000)
+        }
+    }
+
+    private val pickMedia = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) uploadAndSendMedia(uri)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -97,22 +108,9 @@ class ChatActivity : AppCompatActivity() {
         findViewById<View>(R.id.btn_video_call).setOnClickListener {
             startCallWith(other, otherUser?.name ?: "Kinnect user", video = true)
         }
-        findViewById<ImageView>(R.id.btnGallery).setOnClickListener { pickImage.launch("image/*") }
+        findViewById<ImageView>(R.id.btnGallery).setOnClickListener { pickMedia.launch("*/*") }
         findViewById<TextView>(R.id.btnCancelReply).setOnClickListener { cancelBar() }
         btnSend.setOnClickListener { onSendClicked() }
-
-        findViewById<View>(R.id.btnChatInfo)?.setOnClickListener {
-            AlertDialog.Builder(this)
-                .setTitle("Chat Security & Privacy")
-                .setMessage("Screenshots taken in this chat notify the other user and add a system message (\"Name took a screenshot\") to the conversation.")
-                .setPositiveButton("Simulate Screenshot") { _, _ ->
-                    handleScreenshot()
-                }
-                .setNegativeButton("Close", null)
-                .show()
-        }
-
-        registerScreenshotObserver()
 
         input.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
@@ -124,134 +122,99 @@ class ChatActivity : AppCompatActivity() {
         })
     }
 
-    private var lastScreenshotTime = 0L
-    private var screenshotObserver: ContentObserver? = null
-
-    private fun registerScreenshotObserver() {
-        if (Build.VERSION.SDK_INT >= 34) {
-            try {
-                registerScreenCaptureCallback(mainExecutor) {
-                    handleScreenshot()
-                }
-            } catch (_: Exception) {}
-        } else {
-            val handler = Handler(Looper.getMainLooper())
-            val observer = object : ContentObserver(handler) {
-                override fun onChange(selfChange: Boolean, uri: Uri?) {
-                    super.onChange(selfChange, uri)
-                    if (uri != null && uri.toString().contains("media/external/images/media")) {
-                        try {
-                            contentResolver.query(
-                                uri,
-                                arrayOf(MediaStore.Images.Media.DATA),
-                                null,
-                                null,
-                                null
-                            )?.use { cursor ->
-                                if (cursor.moveToFirst()) {
-                                    val path = cursor.getString(0) ?: ""
-                                    if (path.contains("screenshot", ignoreCase = true) ||
-                                        path.contains("Screenshots", ignoreCase = true)
-                                    ) {
-                                        handleScreenshot()
-                                    }
-                                }
-                            }
-                        } catch (_: Exception) {}
-                    }
-                }
-            }
-            try {
-                contentResolver.registerContentObserver(
-                    MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-                    true,
-                    observer
-                )
-                screenshotObserver = observer
-            } catch (_: Exception) {}
-        }
-    }
-
-    private fun handleScreenshot() {
-        val now = System.currentTimeMillis()
-        if (now - lastScreenshotTime < 3000L) return
-        lastScreenshotTime = now
-        ChatManager.send(me, other, "Someone took a screenshot", "", null)
-        Toast.makeText(this, "Security notification sent to chat", Toast.LENGTH_SHORT).show()
-    }
-
-    override fun onDestroy() {
-        screenshotObserver?.let {
-            try { contentResolver.unregisterContentObserver(it) } catch (_: Exception) {}
-        }
-        super.onDestroy()
-    }
-
     override fun onResume() {
         super.onResume()
         activeChatUid = other
+        handler.post(pollRunnable)
     }
 
     override fun onPause() {
         super.onPause()
         if (activeChatUid == other) activeChatUid = null
+        handler.removeCallbacks(pollRunnable)
     }
 
     override fun onStart() {
         super.onStart()
         if (chatId.isEmpty()) return
-
-        container.removeAllViews()
-        msgs.clear()
-        rows.clear()
-        lastTs = 0L
+        loadMessages()
     }
 
-    override fun onStop() {
-        super.onStop()
-        removers.forEach { it() }
-        removers.clear()
-    }
-
-    private fun bindHeader() {
-        val u = otherUser ?: return
-        findViewById<TextView>(R.id.tvChatName).text = u.name
-        findViewById<TextView>(R.id.tvIntroName).text = u.name
-        findViewById<TextView>(R.id.tvChatStatus).text = if (online) "Active now" else "Offline"
-        findViewById<View>(R.id.chatOnlineDot).visibility = if (online) View.VISIBLE else View.GONE
-        findViewById<TextView>(R.id.tvIntroSub).text = when {
-            isFriend -> "You're friends on Kinnect"
-            u.username.isNotEmpty() -> "@${u.username}"
-            else -> ""
-        }
-        for (id in listOf(R.id.chatAvatar, R.id.tvIntroAvatar)) {
-            val avatar = findViewById<TextView>(id)
-            avatar.text = UiUtils.initialsOf(u.name)
-            UiUtils.tintAvatar(avatar, u.uid)
+    private fun loadMessages() {
+        ChatManager.fetchMessages(this, other) { newMsgs ->
+            container.removeAllViews()
+            msgs.clear()
+            rows.clear()
+            lastTs = 0L
+            for (m in newMsgs.sortedBy { it.ts }) {
+                addMessage(m)
+            }
         }
     }
 
-    private fun firstName(): String = otherUser?.name?.split(" ")?.firstOrNull() ?: "They"
+    private fun uploadAndSendMedia(uri: Uri) {
+        val inputStream = contentResolver.openInputStream(uri)
+        val bytes = inputStream?.readBytes()
+        if (bytes == null) {
+            toast("Could not read file")
+            return
+        }
+
+        val typeStr = contentResolver.getType(uri) ?: ""
+        val mediaType = when {
+            typeStr.startsWith("image") -> "image"
+            typeStr.startsWith("video") -> "video"
+            else -> "file"
+        }
+        val fileName = "file_${System.currentTimeMillis()}"
+
+        val url = "${ApiClient.BASE_URL}message_upload.php"
+        val token = RecentLoginStore.getToken(this) ?: return
+
+        val params = mapOf("media_type" to mediaType)
+        val byteData = mapOf("file" to VolleyMultipartRequest.DataPart(fileName, bytes, typeStr.ifEmpty { "application/octet-stream" }))
+
+        val request = VolleyMultipartRequest(
+            Request.Method.POST,
+            url,
+            mapOf("Authorization" to "Bearer $token"),
+            params,
+            byteData,
+            Response.Listener { response ->
+                try {
+                    val json = JSONObject(String(response.data))
+                    if (json.getString("status") == "success") {
+                        val mediaUrl = json.getString("media_url")
+                        ChatManager.send(this, me, other, "", mediaUrl, mediaType, replyTo?.id?.toIntOrNull()) { ok ->
+                            if (ok) loadMessages() else toast("Failed to send media message")
+                        }
+                    } else {
+                        toast(json.getString("message"))
+                    }
+                } catch (e: Exception) {
+                    toast("Upload error: ${e.message}")
+                }
+            },
+            Response.ErrorListener { error ->
+                toast("Network error: ${error.message}")
+            }
+        )
+        Volley.newRequestQueue(this).add(request)
+        toast("Uploading media...")
+    }
 
     private fun addMessage(m: Msg) {
-        msgs[m.id] = m
+        msgs[m.clientMsgId] = m
         if (m.ts > 0 && (lastTs == 0L || m.ts - lastTs > 30 * 60 * 1000L)) {
             container.addView(timeText(m.ts))
         }
         if (m.ts > 0) lastTs = m.ts
 
         val row = layoutInflater.inflate(R.layout.item_message, container, false)
-        rows[m.id] = row
+        rows[m.clientMsgId] = row
         bind(row, m)
         container.addView(row)
-
-        if (m.from != me) markRead()
         scroll.post { scroll.fullScroll(View.FOCUS_DOWN) }
-    }
-
-    private fun updateMessage(m: Msg) {
-        msgs[m.id] = m
-        rows[m.id]?.let { bind(it, m) }
     }
 
     private fun bind(row: View, m: Msg) {
@@ -271,28 +234,13 @@ class ChatActivity : AppCompatActivity() {
             true
         }
 
-        val isSystem = m.text.endsWith(" took a screenshot")
-        if (isSystem) {
-            label.visibility = View.GONE
-            quote.visibility = View.GONE
-            image.visibility = View.GONE
-            meta.visibility = View.GONE
-            bubble.visibility = View.VISIBLE
-            bubble.text = "“${m.text}”"
-            bubble.setBackgroundResource(R.drawable.kn_pill_gray)
-            bubble.setTextColor(getColor(R.color.kn_text2))
-            bubble.setTypeface(null, Typeface.ITALIC)
-            (row as LinearLayout).gravity = Gravity.CENTER
-            return
-        }
-
         if (m.deleted) {
             label.visibility = View.GONE
             quote.visibility = View.GONE
             image.visibility = View.GONE
             meta.visibility = View.GONE
             bubble.visibility = View.VISIBLE
-            bubble.text = if (mine) "You removed a message" else "${firstName()} removed a message"
+            bubble.text = if (mine) "You removed a message" else "Message removed"
             bubble.setBackgroundResource(R.drawable.kn_pill_outline)
             bubble.setTextColor(getColor(R.color.kn_text2))
             bubble.setTypeface(null, Typeface.ITALIC)
@@ -301,28 +249,12 @@ class ChatActivity : AppCompatActivity() {
 
         bubble.setTypeface(null, Typeface.NORMAL)
 
-        if (m.replyId.isNotEmpty()) {
-            label.visibility = View.VISIBLE
-            label.text = replyLabel(m)
-            quote.visibility = View.VISIBLE
-            quote.text = m.replyText.ifEmpty { "Photo" }
-        } else {
-            label.visibility = View.GONE
-            quote.visibility = View.GONE
-        }
-
-        if (m.image.isNotEmpty()) {
-            val bmp = bitmaps[m.id] ?: ImageUtils.toBitmap(m.image)?.also { bitmaps[m.id] = it }
-            if (bmp != null) {
-                image.setImageBitmap(bmp)
-                image.setBackgroundResource(R.drawable.kn_bubble_in)
-                image.clipToOutline = true
-                image.visibility = View.VISIBLE
-            } else {
-                image.visibility = View.GONE
-            }
-        } else {
-            image.visibility = View.GONE
+        if (m.mediaUrl.isNotEmpty() && m.mediaType == "image") {
+            image.visibility = View.VISIBLE
+            ImageCache.load("msg_${m.clientMsgId}", m.mediaUrl, image)
+        } else if (m.mediaUrl.isNotEmpty()) {
+            bubble.visibility = View.VISIBLE
+            bubble.text = "File/Video: ${m.mediaUrl}"
         }
 
         if (m.text.isNotEmpty()) {
@@ -330,23 +262,12 @@ class ChatActivity : AppCompatActivity() {
             bubble.text = m.text
             bubble.setBackgroundResource(if (mine) R.drawable.kn_bubble_out else R.drawable.kn_bubble_in)
             bubble.setTextColor(getColor(if (mine) R.color.white else R.color.kn_text))
-        } else {
+        } else if (m.mediaUrl.isEmpty()) {
             bubble.visibility = View.GONE
         }
 
         edited.visibility = if (m.edited) View.VISIBLE else View.GONE
-        heart.visibility = if (m.hearts.isNotEmpty()) View.VISIBLE else View.GONE
-        meta.visibility = if (m.edited || m.hearts.isNotEmpty()) View.VISIBLE else View.GONE
-    }
-
-    private fun replyLabel(m: Msg): String {
-        val name = firstName()
-        return when {
-            m.from == me && m.replyFrom == me -> "You replied to yourself"
-            m.from == me -> "You replied to $name"
-            m.replyFrom == me -> "$name replied to you"
-            else -> "$name replied to themselves"
-        }
+        meta.visibility = if (m.edited) View.VISIBLE else View.GONE
     }
 
     private fun showOptions(m: Msg) {
@@ -358,9 +279,6 @@ class ChatActivity : AppCompatActivity() {
 
         labels += "Reply"
         actions += { startReply(m) }
-
-        labels += if (me in m.hearts) "Remove heart" else "React with heart"
-        actions += { ChatManager.toggleHeart(me, other, m) }
 
         if (canChange) {
             if (m.text.isNotEmpty()) {
@@ -379,8 +297,7 @@ class ChatActivity : AppCompatActivity() {
     private fun startReply(m: Msg) {
         editing = null
         replyTo = m
-        val who = if (m.from == me) "yourself" else firstName()
-        tvReplyLabel.text = "Replying to $who"
+        tvReplyLabel.text = "Replying to message"
         replyBar.visibility = View.VISIBLE
         showKeyboard()
     }
@@ -400,7 +317,9 @@ class ChatActivity : AppCompatActivity() {
         AlertDialog.Builder(this)
             .setTitle("Delete this message?")
             .setPositiveButton("Delete") { _, _ ->
-                ChatManager.delete(me, other, m) { ok -> if (!ok) toast("You can't delete this message anymore") }
+                ChatManager.delete(this, m.clientMsgId) { ok ->
+                    if (ok) loadMessages() else toast("You can't delete this message after 5 minutes")
+                }
             }
             .setNegativeButton("Cancel", null)
             .show()
@@ -427,34 +346,22 @@ class ChatActivity : AppCompatActivity() {
                 return
             }
             if (text != edit.text) {
-                ChatManager.edit(me, other, edit, text) { ok -> if (!ok) toast("You can't edit this message anymore") }
+                ChatManager.edit(this, edit.clientMsgId, text) { ok ->
+                    if (ok) loadMessages() else toast("You can't edit this message after 5 minutes")
+                }
             }
             input.setText("")
             clearBar()
             return
         }
 
-        ChatManager.send(me, other, text.ifEmpty { "👍" }, "", replyTo) { ok -> if (!ok) toast("Message not sent") }
+        if (text.isEmpty()) return
+
+        ChatManager.send(this, me, other, text, "", "text", replyTo?.id?.toIntOrNull()) { ok ->
+            if (ok) loadMessages() else toast("Message not sent")
+        }
         input.setText("")
         clearBar()
-    }
-
-    private fun sendImage(uri: Uri) {
-        Thread {
-            val b64 = ImageUtils.encode(this, uri)
-            runOnUiThread {
-                if (b64 == null) {
-                    toast("Could not read this image")
-                } else {
-                    ChatManager.send(me, other, "", b64, replyTo) { ok -> if (!ok) toast("Image not sent") }
-                    clearBar()
-                }
-            }
-        }.start()
-    }
-
-    private fun markRead() {
-        // Local fallback: no-op
     }
 
     private fun showKeyboard() {

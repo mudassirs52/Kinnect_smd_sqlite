@@ -13,9 +13,12 @@ import java.util.Locale
 
 data class Msg(
     val id: String,
+    val clientMsgId: String,
     val from: String,
     val text: String,
     val image: String,
+    val mediaUrl: String,
+    val mediaType: String,
     val ts: Long,
     val edited: Boolean,
     val deleted: Boolean,
