@@ -14,7 +14,6 @@ class KinnectApp : Application(), Application.ActivityLifecycleCallbacks {
 
     private var startedCount = 0
     private var stopListening: (() -> Unit)? = null
-    private var lastShownCallId = ""
     private var askedNotificationPermission = false
 
     override fun onCreate() {
@@ -24,6 +23,9 @@ class KinnectApp : Application(), Application.ActivityLifecycleCallbacks {
 
     override fun onActivityStarted(activity: Activity) {
         startedCount++
+        if (startedCount == 1) {
+            PresenceManager.start(this)
+        }
         askNotificationPermission(activity)
     }
 
@@ -31,6 +33,7 @@ class KinnectApp : Application(), Application.ActivityLifecycleCallbacks {
         startedCount--
         if (startedCount <= 0) {
             startedCount = 0
+            PresenceManager.stop()
             detach()
         }
     }
