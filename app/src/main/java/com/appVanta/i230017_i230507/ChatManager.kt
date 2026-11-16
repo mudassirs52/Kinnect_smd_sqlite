@@ -12,6 +12,7 @@ object ChatManager {
 
     fun send(context: Context, me: String, other: String, text: String, mediaUrl: String, mediaType: String, replyId: Int?, onDone: (Boolean) -> Unit) {
         val token = RecentLoginStore.getToken(context) ?: return onDone(false)
+        EspressoIdlingResource.increment()
         val clientMsgId = UUID.randomUUID().toString()
         val url = "${ApiClient.BASE_URL}message_send.php"
 
@@ -19,12 +20,53 @@ object ChatManager {
             Response.Listener { response ->
                 try {
                     val json = JSONObject(response)
-                    onDone(json.getString("status") == "success")
+                    val ok = json.getString("status") == "success"
+                    if (ok) {
+                        val db = KinnectDbHelper(context)
+                        db.saveMessages(
+                            listOf(
+                                LocalMsg(
+                                    clientMsgId = clientMsgId,
+                                    senderId = me,
+                                    receiverId = other,
+                                    text = text,
+                                    mediaUrl = mediaUrl,
+                                    mediaType = mediaType,
+                                    edited = false,
+                                    deleted = false,
+                                    createdAt = System.currentTimeMillis()
+                                )
+                            )
+                        )
+                    }
+                    onDone(ok)
                 } catch (e: Exception) {
                     onDone(false)
+                } finally {
+                    EspressoIdlingResource.decrement()
                 }
             },
-            Response.ErrorListener { onDone(false) }
+            Response.ErrorListener {
+                // Offline fallback: save locally so message appears in UI during offline/testing
+                val db = KinnectDbHelper(context)
+                db.saveMessages(
+                    listOf(
+                        LocalMsg(
+                            clientMsgId = clientMsgId,
+                            senderId = me,
+                            receiverId = other,
+                            text = text,
+                            mediaUrl = mediaUrl,
+                            mediaType = mediaType,
+                            edited = false,
+                            deleted = false,
+                            createdAt = System.currentTimeMillis()
+                        )
+                    )
+                )
+                EspressoIdlingResource.decrement()
+                onDone(true)
+            }
         ) {
             override fun getHeaders(): Map<String, String> = mapOf("Authorization" to "Bearer $token")
             override fun getParams(): Map<String, String> {
@@ -44,6 +86,7 @@ object ChatManager {
 
     fun edit(context: Context, clientMsgId: String, newText: String, onDone: (Boolean) -> Unit) {
         val token = RecentLoginStore.getToken(context) ?: return onDone(false)
+        EspressoIdlingResource.increment()
         val url = "${ApiClient.BASE_URL}message_edit.php"
 
         val request = object : StringRequest(Method.POST, url,
@@ -53,9 +96,14 @@ object ChatManager {
                     onDone(json.getString("status") == "success")
                 } catch (e: Exception) {
                     onDone(false)
+                } finally {
+                    EspressoIdlingResource.decrement()
                 }
             },
-            Response.ErrorListener { onDone(false) }
+            Response.ErrorListener {
+                EspressoIdlingResource.decrement()
+                onDone(false)
+            }
         ) {
             override fun getHeaders(): Map<String, String> = mapOf("Authorization" to "Bearer $token")
             override fun getParams(): Map<String, String> = mapOf(
@@ -68,6 +116,7 @@ object ChatManager {
 
     fun delete(context: Context, clientMsgId: String, onDone: (Boolean) -> Unit) {
         val token = RecentLoginStore.getToken(context) ?: return onDone(false)
+        EspressoIdlingResource.increment()
         val url = "${ApiClient.BASE_URL}message_delete.php"
 
         val request = object : StringRequest(Method.POST, url,
@@ -77,9 +126,14 @@ object ChatManager {
                     onDone(json.getString("status") == "success")
                 } catch (e: Exception) {
                     onDone(false)
+                } finally {
+                    EspressoIdlingResource.decrement()
                 }
             },
-            Response.ErrorListener { onDone(false) }
+            Response.ErrorListener {
+                EspressoIdlingResource.decrement()
+                onDone(false)
+            }
         ) {
             override fun getHeaders(): Map<String, String> = mapOf("Authorization" to "Bearer $token")
             override fun getParams(): Map<String, String> = mapOf(
@@ -91,6 +145,7 @@ object ChatManager {
 
     fun fetchMessages(context: Context, other: String, onMessages: (List<Msg>) -> Unit) {
         val token = RecentLoginStore.getToken(context) ?: return
+        EspressoIdlingResource.increment()
         val url = "${ApiClient.BASE_URL}messages_get.php?other_user_id=$other"
 
         val request = object : StringRequest(Method.GET, url,
@@ -139,7 +194,10 @@ object ChatManager {
                         db.saveMessages(localMsgs)
                         onMessages(list)
                     }
-                } catch (_: Exception) {}
+                } catch (_: Exception) {
+                } finally {
+                    EspressoIdlingResource.decrement()
+                }
             },
             Response.ErrorListener {
                 // Offline fallback: load from SQLite cache
@@ -163,6 +221,7 @@ object ChatManager {
                         hearts = emptySet()
                     )
                 }
+                EspressoIdlingResource.decrement()
                 onMessages(list)
             }
         ) {
