@@ -9,7 +9,12 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import com.android.volley.Request
+import com.android.volley.Response
+import com.android.volley.toolbox.StringRequest
+import com.android.volley.toolbox.Volley
 import com.appVanta.i230017_i230507.FriendManager.State
+import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -22,26 +27,17 @@ class OtherProfileActivity : AppCompatActivity() {
     private var otherName = ""
     private var state = State.NONE
     private var stateLoaded = false
-    private var otherFriends = setOf<String>()
-    private var myFriends = setOf<String>()
-    private val removers = mutableListOf<() -> Unit>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_other_profile)
 
-        val me = "local_user_123"
         val uid = intent.getStringExtra("uid")
         if (uid == null) {
             finish()
             return
         }
-        if (uid == me) {
-            startActivity(Intent(this, ProfileActivity::class.java))
-            finish()
-            return
-        }
-        meUid = me
+        meUid = "local_user_123"
         otherUid = uid
 
         btnAdd = findViewById(R.id.btn_add_friend_other)
@@ -55,36 +51,47 @@ class OtherProfileActivity : AppCompatActivity() {
 
         findViewById<View>(R.id.rowOtherWork).visibility = View.GONE
         findViewById<View>(R.id.rowOtherLives).visibility = View.GONE
+
+        loadProfile()
     }
 
-    override fun onStart() {
-        super.onStart()
-        if (!::otherUid.isInitialized) return
-        // Local fallback: no-op for observation
-    }
+    private fun loadProfile() {
+        val token = RecentLoginStore.getToken(this) ?: return
+        val url = "${ApiClient.BASE_URL}profile_get.php?uid=$otherUid"
 
-    override fun onStop() {
-        super.onStop()
-        removers.forEach { it() }
-        removers.clear()
-    }
+        val request = object : StringRequest(Method.GET, url,
+            Response.Listener { response ->
+                try {
+                    val json = JSONObject(response)
+                    if (json.getString("status") == "success") {
+                        val u = json.getJSONObject("user")
+                        otherName = u.getString("name")
+                        findViewById<TextView>(R.id.tvTopName).text = otherName
+                        findViewById<TextView>(R.id.tvOtherName).text = otherName
+                        findViewById<TextView>(R.id.tvOtherBio).text = u.optString("bio", "")
+                        
+                        val avatarView = findViewById<TextView>(R.id.tvOtherInitials)
+                        avatarView.text = UiUtils.initialsOf(otherName)
+                        Photos.bindAvatar(avatarView, otherName, otherUid, u.optString("profile_photo", ""))
+                        Photos.bindCover(findViewById(R.id.ivOtherCoverPhoto), u.optString("cover_photo", ""), R.drawable.image6)
 
-    private fun bindUser(u: UserLite) {
-        otherName = u.name
-        findViewById<TextView>(R.id.tvTopName).text = u.name
-        findViewById<TextView>(R.id.tvOtherName).text = u.name
-        Photos.bindAvatar(findViewById(R.id.tvOtherInitials), u.name, u.uid, u.profilePhoto)
-        Photos.bindCover(findViewById(R.id.ivOtherCoverPhoto), u.coverPhoto, R.drawable.image6)
-        findViewById<TextView>(R.id.tvOtherBio).text = u.bio
-        if (u.createdAt > 0) {
-            val joined = SimpleDateFormat("MMMM yyyy", Locale.getDefault()).format(Date(u.createdAt))
-            findViewById<TextView>(R.id.tvOtherJoined).text = "Joined $joined"
+                        val createdAt = u.optLong("created_at", 0)
+                        if (createdAt > 0) {
+                            val joined = SimpleDateFormat("MMMM yyyy", Locale.getDefault()).format(Date(createdAt))
+                            findViewById<TextView>(R.id.tvOtherJoined).text = "Joined $joined"
+                        }
+
+                        state = State.NONE
+                        stateLoaded = true
+                        bindButton()
+                    }
+                } catch (_: Exception) {}
+            },
+            Response.ErrorListener {}
+        ) {
+            override fun getHeaders(): Map<String, String> = mapOf("Authorization" to "Bearer $token")
         }
-    }
-
-    private fun bindStats() {
-        val mutual = otherFriends.filter { it in myFriends }
-        findViewById<TextView>(R.id.tvOtherStats).text = "${otherFriends.size} friends · ${mutual.size} mutual"
+        Volley.newRequestQueue(this).add(request)
     }
 
     private fun bindButton() {
@@ -92,16 +99,12 @@ class OtherProfileActivity : AppCompatActivity() {
         btnAdd.isEnabled = true
         when (state) {
             State.NONE -> {
-                btnAdd.text = "Add friend"
+                btnAdd.text = "Add Friend"
                 btnAdd.setBackgroundResource(R.drawable.kn_pill_teal)
             }
-            State.SENT -> {
-                btnAdd.text = "Cancel request"
+            State.SENT, State.RECEIVED -> {
+                btnAdd.text = "Requested"
                 btnAdd.setBackgroundResource(R.drawable.kn_pill_gray)
-            }
-            State.RECEIVED -> {
-                btnAdd.text = "Respond to request"
-                btnAdd.setBackgroundResource(R.drawable.kn_pill_teal)
             }
             State.FRIENDS -> {
                 btnAdd.text = "Friends"
@@ -112,19 +115,36 @@ class OtherProfileActivity : AppCompatActivity() {
 
     private fun onActionClick() {
         when (state) {
-            State.NONE -> FriendManager.sendRequest(otherUid) { ok -> if (!ok) toast("Could not send request") }
-            State.SENT -> FriendManager.cancelRequest(otherUid) { ok -> if (!ok) toast("Could not cancel request") }
-            State.RECEIVED -> {
-                AlertDialog.Builder(this)
-                    .setTitle("Respond to friend request")
-                    .setPositiveButton("Confirm") { _, _ -> FriendManager.confirm(otherUid) {} }
-                    .setNegativeButton("Delete") { _, _ -> FriendManager.deleteRequest(otherUid) {} }
-                    .show()
+            State.NONE -> {
+                FriendManager.sendRequest(this, otherUid) { ok ->
+                    if (ok) {
+                        state = State.SENT
+                        bindButton()
+                        toast("Friend request sent")
+                    } else toast("Could not send request")
+                }
+            }
+            State.SENT, State.RECEIVED -> {
+                FriendManager.cancelRequest(this, otherUid) { ok ->
+                    if (ok) {
+                        state = State.NONE
+                        bindButton()
+                        toast("Request canceled")
+                    } else toast("Could not cancel request")
+                }
             }
             State.FRIENDS -> {
                 AlertDialog.Builder(this)
                     .setTitle("Unfriend $otherName?")
-                    .setPositiveButton("Unfriend") { _, _ -> FriendManager.unfriend(otherUid) {} }
+                    .setPositiveButton("Unfriend") { _, _ ->
+                        FriendManager.unfriend(this, otherUid) { ok ->
+                            if (ok) {
+                                state = State.NONE
+                                bindButton()
+                                toast("Unfriended")
+                            } else toast("Could not unfriend")
+                        }
+                    }
                     .setNegativeButton("Cancel", null)
                     .show()
             }

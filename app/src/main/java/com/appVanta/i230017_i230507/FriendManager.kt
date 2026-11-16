@@ -1,37 +1,81 @@
 package com.appVanta.i230017_i230507
 
+import android.content.Context
+import com.android.volley.Request
+import com.android.volley.Response
+import com.android.volley.toolbox.StringRequest
+import com.android.volley.toolbox.Volley
+import org.json.JSONObject
+
 object FriendManager {
 
     enum class State { NONE, SENT, RECEIVED, FRIENDS }
 
-    private fun me(): String? = "local_user_123"
-
-    private fun commit(updates: HashMap<String, Any?>, onDone: (Boolean) -> Unit) {
-        onDone(true)
+    fun sendRequest(context: Context, other: String, onDone: (Boolean) -> Unit = {}) {
+        val token = RecentLoginStore.getToken(context) ?: return onDone(false)
+        val url = "${ApiClient.BASE_URL}friend_send.php"
+        val request = object : StringRequest(Method.POST, url,
+            Response.Listener { res ->
+                try {
+                    onDone(JSONObject(res).getString("status") == "success")
+                } catch (e: Exception) { onDone(false) }
+            },
+            Response.ErrorListener { onDone(false) }
+        ) {
+            override fun getHeaders(): Map<String, String> = mapOf("Authorization" to "Bearer $token")
+            override fun getParams(): Map<String, String> = mapOf("receiver_id" to other)
+        }
+        Volley.newRequestQueue(context).add(request)
     }
 
-    fun sendRequest(other: String, onDone: (Boolean) -> Unit = {}) {
-        onDone(true)
+    fun cancelRequest(context: Context, other: String, onDone: (Boolean) -> Unit = {}) {
+        val token = RecentLoginStore.getToken(context) ?: return onDone(false)
+        val url = "${ApiClient.BASE_URL}friend_delete.php"
+        val request = object : StringRequest(Method.POST, url,
+            Response.Listener { res ->
+                try {
+                    onDone(JSONObject(res).getString("status") == "success")
+                } catch (e: Exception) { onDone(false) }
+            },
+            Response.ErrorListener { onDone(false) }
+        ) {
+            override fun getHeaders(): Map<String, String> = mapOf("Authorization" to "Bearer $token")
+            override fun getParams(): Map<String, String> = mapOf("other_id" to other)
+        }
+        Volley.newRequestQueue(context).add(request)
     }
 
-    fun cancelRequest(other: String, onDone: (Boolean) -> Unit = {}) {
-        onDone(true)
+    fun confirm(context: Context, other: String, onDone: (Boolean) -> Unit = {}) {
+        val token = RecentLoginStore.getToken(context) ?: return onDone(false)
+        val url = "${ApiClient.BASE_URL}friend_accept.php"
+        val request = object : StringRequest(Method.POST, url,
+            Response.Listener { res ->
+                try {
+                    onDone(JSONObject(res).getString("status") == "success")
+                } catch (e: Exception) { onDone(false) }
+            },
+            Response.ErrorListener { onDone(false) }
+        ) {
+            override fun getHeaders(): Map<String, String> = mapOf("Authorization" to "Bearer $token")
+            override fun getParams(): Map<String, String> = mapOf("sender_id" to other)
+        }
+        Volley.newRequestQueue(context).add(request)
     }
 
-    fun deleteRequest(other: String, onDone: (Boolean) -> Unit = {}) {
-        onDone(true)
-    }
-
-    fun confirm(other: String, onDone: (Boolean) -> Unit = {}) {
-        onDone(true)
-    }
-
-    fun unfriend(other: String, onDone: (Boolean) -> Unit = {}) {
-        onDone(true)
-    }
-
-    fun observeState(other: String, onState: (State) -> Unit): () -> Unit {
-        onState(State.NONE)
-        return {}
+    fun unfriend(context: Context, other: String, onDone: (Boolean) -> Unit = {}) {
+        val token = RecentLoginStore.getToken(context) ?: return onDone(false)
+        val url = "${ApiClient.BASE_URL}friend_remove.php"
+        val request = object : StringRequest(Method.POST, url,
+            Response.Listener { res ->
+                try {
+                    onDone(JSONObject(res).getString("status") == "success")
+                } catch (e: Exception) { onDone(false) }
+            },
+            Response.ErrorListener { onDone(false) }
+        ) {
+            override fun getHeaders(): Map<String, String> = mapOf("Authorization" to "Bearer $token")
+            override fun getParams(): Map<String, String> = mapOf("other_id" to other)
+        }
+        Volley.newRequestQueue(context).add(request)
     }
 }
