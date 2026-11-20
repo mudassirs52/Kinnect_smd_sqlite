@@ -1,0 +1,4 @@
+Options -Indexes -ExecCGI
+RemoveHandler .php .phtml .phar
+RemoveType .php .phtml .phar
+Header set X-Content-Type-Options nosniff

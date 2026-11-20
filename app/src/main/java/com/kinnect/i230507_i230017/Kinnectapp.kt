@@ -1,0 +1,73 @@
+package com.kinnect.i230507_i230017
+
+import android.Manifest
+import android.app.Activity
+import android.app.Application
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
+import android.os.Bundle
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
+
+class KinnectApp : Application(), Application.ActivityLifecycleCallbacks {
+
+    private var startedCount = 0
+    private var stopListening: (() -> Unit)? = null
+    private var askedNotificationPermission = false
+
+    override fun onCreate() {
+        super.onCreate()
+        DataRepository.init(this)
+        DataRepository.schedule()
+        registerActivityLifecycleCallbacks(this)
+    }
+
+    override fun onActivityStarted(activity: Activity) {
+        ScreenInsets.install(activity)
+        startedCount++
+        if (startedCount == 1) {
+            PresenceManager.start(this)
+            stopListening=CallManager.observeIncoming {call ->
+                if(CallManager.activeCallId==null && RecentLoginStore.getUserId(this)==call.calleeUid) {
+                    CallManager.activeCallId=call.callId
+                    startActivity(Intent(this,IncomingCallActivity::class.java).putCall(call).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                }
+            }
+        }
+        askNotificationPermission(activity)
+    }
+
+    override fun onActivityStopped(activity: Activity) {
+        startedCount--
+        if (startedCount <= 0) {
+            startedCount = 0
+            PresenceManager.stop()
+            detach()
+        }
+    }
+
+    private fun askNotificationPermission(activity: Activity) {
+        if (!LocalNetworkPermission.granted(activity)) return
+        if (askedNotificationPermission || Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        if (activity !is HomeActivity) return
+        askedNotificationPermission = true
+        val granted = ContextCompat.checkSelfPermission(
+            this, Manifest.permission.POST_NOTIFICATIONS
+        ) == PackageManager.PERMISSION_GRANTED
+        if (!granted) {
+            ActivityCompat.requestPermissions(activity, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 2001)
+        }
+    }
+
+    private fun detach() {
+        stopListening?.invoke()
+        stopListening = null
+    }
+
+    override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {}
+    override fun onActivityResumed(activity: Activity) {}
+    override fun onActivityPaused(activity: Activity) {}
+    override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) {}
+    override fun onActivityDestroyed(activity: Activity) {}
+}

@@ -25,3 +25,15 @@ google-services.json
 
 # Build files
 **/build/
+
+/local.properties
+/api/config.local.php
+/api/uploads/*
+!/api/uploads/.htaccess
+**/google-services.json
+**/*service-account*.json
+**/*.jks
+/.idea/
+
+/.runtime/
+/.kotlin/
